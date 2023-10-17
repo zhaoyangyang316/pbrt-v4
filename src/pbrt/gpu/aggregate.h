@@ -23,6 +23,10 @@
 
 #include <cuda.h>
 #include <cuda_runtime.h>
+
+
+//#include "C:\ProgramData\NVIDIA Corporation\OptiX SDK 8.0.0\include\optix.h"
+
 #include <optix.h>
 
 namespace pbrt {

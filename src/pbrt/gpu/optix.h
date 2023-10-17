@@ -16,6 +16,7 @@
 #include <pbrt/wavefront/workitems.h>
 #include <pbrt/wavefront/workqueue.h>
 
+//#include "C:\ProgramData\NVIDIA Corporation\OptiX SDK 8.0.0\include\optix.h"
 #include <optix.h>
 
 namespace pbrt {
