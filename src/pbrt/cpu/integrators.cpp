@@ -396,112 +396,124 @@ SampledSpectrum SimpleRISPathIntegrator::Li(RayDifferential ray, SampledWaveleng
     SampledSpectrum L(0.f), beta(1.f);
     bool specularBounce = true;
     int depth = 0;
-    while (beta) {
+    //while (beta) {
         // Find next _SimplePathIntegrator_ vertex and accumulate contribution
         // Intersect _ray_ with scene
-        pstd::optional<ShapeIntersection> si = Intersect(ray);
+    pstd::optional<ShapeIntersection> si = Intersect(ray);
 
-        // Account for infinite lights if ray has no intersection
+    // Account for infinite lights if ray has no intersection
+    if (!si) {
+        if (!sampleLights || specularBounce)
+            for (const auto &light : infiniteLights)
+                L += beta * light.Le(ray, lambda);
+        return L;
+    }
+
+    // Account for emissive surface if light was not sampled
+    SurfaceInteraction &isect = si->intr;
+    if (!sampleLights || specularBounce)
+        L += beta * isect.Le(-ray.d, lambda);
+
+    // Get BSDF and skip over medium boundaries
+    BSDF bsdf = isect.GetBSDF(ray, lambda, camera, scratchBuffer, sampler);
+    if (!bsdf) {
+        specularBounce = true;
+        isect.SkipIntersection(&ray, si->tHit);
+        //continue;
+    }
+
+    // Sample direct illumination if _sampleLights_ is true
+    Vector3f wo = -ray.d;
+    /*
+    if (sampleLights) {
+        pstd::optional<SampledLight> sampledLight =
+            lightSampler.Sample(sampler.Get1D());
+        if (sampledLight) {
+            // Sample point on _sampledLight_ to estimate direct illumination
+            Point2f uLight = sampler.Get2D();
+            pstd::optional<LightLiSample> ls =
+                sampledLight->light.SampleLi(isect, uLight, lambda);
+            if (ls && ls->L && ls->pdf > 0) {
+                // Evaluate BSDF for light and possibly add scattered radiance
+                Vector3f wi = ls->wi;
+                SampledSpectrum f = bsdf.f(wo, wi) * AbsDot(wi, isect.shading.n);
+                if (f && Unoccluded(isect, ls->pLight))
+                    L += beta * f * ls->L / (sampledLight->p * ls->pdf);
+            }
+        }
+    }*/
+
+
+    //At current stage we only do uniform sherical sampling (with cosine)
+    //int M = 16;
+    Float pdf[RIS_M];
+    Vector3f wi[RIS_M];
+    BxDFFlags flags = bsdf.Flags();
+    
+    Float w[RIS_M];
+    SampledSpectrum Lb[RIS_M];
+    Float w_sum;
+    for (int iter = 0; iter < RIS_M; iter++){
+        
+
+        if (IsReflective(flags) && IsTransmissive(flags)) {
+            wi[iter] = SampleUniformSphere(sampler.Get2D());
+            pdf[iter] = UniformSpherePDF();
+        } else {
+            wi[iter] = SampleUniformHemisphere(sampler.Get2D());
+            pdf[iter] = UniformHemispherePDF();
+            if (IsReflective(flags) && Dot(wo, isect.n) * Dot(wi[iter], isect.n) < 0)
+                wi[iter] = -wi[iter];
+            else if (IsTransmissive(flags) && Dot(wo, isect.n) * Dot(wi[iter], isect.n) > 0)
+                wi[iter] = -wi[iter];
+        }
+        SampledSpectrum contribution = bsdf.f(wo, wi[iter]) * AbsDot(wi[iter], isect.shading.n) / pdf[iter];
+        specularBounce = false;
+        RayDifferential shadingRay = isect.SpawnRay(wi[RIS_M]);
+        pstd::optional<ShapeIntersection> secondarySI = Intersect(shadingRay);
+
         if (!si) {
             if (!sampleLights || specularBounce)
                 for (const auto &light : infiniteLights)
-                    L += beta * light.Le(ray, lambda);
-            break;
+                    Lb[iter] += light.Le(ray, lambda);
         }
-
-        // Account for emissive surface if light was not sampled
-        SurfaceInteraction &isect = si->intr;
-        if (!sampleLights || specularBounce)
-            L += beta * isect.Le(-ray.d, lambda);
-
-        // End path if maximum depth reached
-        if (depth++ == maxDepth)
-            break;
-
-        // Get BSDF and skip over medium boundaries
-        BSDF bsdf = isect.GetBSDF(ray, lambda, camera, scratchBuffer, sampler);
-        if (!bsdf) {
-            specularBounce = true;
-            isect.SkipIntersection(&ray, si->tHit);
-            continue;
-        }
-
-        // Sample direct illumination if _sampleLights_ is true
-        Vector3f wo = -ray.d;
-        if (sampleLights) {
-            pstd::optional<SampledLight> sampledLight =
-                lightSampler.Sample(sampler.Get1D());
-            if (sampledLight) {
-                // Sample point on _sampledLight_ to estimate direct illumination
-                Point2f uLight = sampler.Get2D();
-                pstd::optional<LightLiSample> ls =
-                    sampledLight->light.SampleLi(isect, uLight, lambda);
-                if (ls && ls->L && ls->pdf > 0) {
-                    // Evaluate BSDF for light and possibly add scattered radiance
-                    Vector3f wi = ls->wi;
-                    SampledSpectrum f = bsdf.f(wo, wi) * AbsDot(wi, isect.shading.n);
-                    if (f && Unoccluded(isect, ls->pLight))
-                        L += beta * f * ls->L / (sampledLight->p * ls->pdf);
-                }
-            }
-        }
-
-        //int M = 16;
-        for (int iter = 0; iter < RIS_M; iter++){
-            Float pdf[RIS_M];
-            Vector3f wi[RIS_M];
-            BxDFFlags flags = bsdf.Flags();
-            if (IsReflective(flags) && IsTransmissive(flags)) {
-                wi[iter] = SampleUniformSphere(sampler.Get2D());
-                pdf[iter] = UniformSpherePDF();
-            } else {
-                wi[iter] = SampleUniformHemisphere(sampler.Get2D());
-                pdf[iter] = UniformHemispherePDF();
-                if (IsReflective(flags) && Dot(wo, isect.n) * Dot(wi[iter], isect.n) < 0)
-                    wi[iter] = -wi[iter];
-                else if (IsTransmissive(flags) && Dot(wo, isect.n) * Dot(wi[iter], isect.n) > 0)
-                    wi[iter] = -wi[iter];
-            }
-            //beta *= bsdf.f(wo, wi[iter]) * AbsDot(wi[iter], isect.shading.n) / pdf;
-            specularBounce = false;
-            //ray = isect.SpawnRay(wi);
-        }
-/*
-        // Sample outgoing direction at intersection to continue path
-        if (sampleBSDF) {
-                // Sample BSDF for new path direction
-                Float u = sampler.Get1D();
-                pstd::optional<BSDFSample> bs = bsdf.Sample_f(wo, u, sampler.Get2D());
-                if (!bs)
-                    break;
-                beta *= bs->f * AbsDot(bs->wi, isect.shading.n) / bs->pdf;
-                specularBounce = bs->IsSpecular();
-                ray = isect.SpawnRay(bs->wi);
-            }
-        } else {
-            // Uniformly sample sphere or hemisphere to get new path direction
-            Float pdf;
-            Vector3f wi;
-            BxDFFlags flags = bsdf.Flags();
-            if (IsReflective(flags) && IsTransmissive(flags)) {
-                wi = SampleUniformSphere(sampler.Get2D());
-                pdf = UniformSpherePDF();
-            } else {
-                wi = SampleUniformHemisphere(sampler.Get2D());
-                pdf = UniformHemispherePDF();
-                if (IsReflective(flags) && Dot(wo, isect.n) * Dot(wi, isect.n) < 0)
-                    wi = -wi;
-                else if (IsTransmissive(flags) && Dot(wo, isect.n) * Dot(wi, isect.n) > 0)
-                    wi = -wi;
-            }
-            beta *= bsdf.f(wo, wi) * AbsDot(wi, isect.shading.n) / pdf;
-            specularBounce = false;
-            ray = isect.SpawnRay(wi);
-        }
-*/
-        CHECK_GE(beta.y(lambda), 0.f);
-        DCHECK(!IsInf(beta.y(lambda)));
     }
+/*
+    // Sample outgoing direction at intersection to continue path
+    if (sampleBSDF) {
+            // Sample BSDF for new path direction
+            Float u = sampler.Get1D();
+            pstd::optional<BSDFSample> bs = bsdf.Sample_f(wo, u, sampler.Get2D());
+            if (!bs)
+                break;
+            beta *= bs->f * AbsDot(bs->wi, isect.shading.n) / bs->pdf;
+            specularBounce = bs->IsSpecular();
+            ray = isect.SpawnRay(bs->wi);
+        }
+    } else {
+        // Uniformly sample sphere or hemisphere to get new path direction
+        Float pdf;
+        Vector3f wi;
+        BxDFFlags flags = bsdf.Flags();
+        if (IsReflective(flags) && IsTransmissive(flags)) {
+            wi = SampleUniformSphere(sampler.Get2D());
+            pdf = UniformSpherePDF();
+        } else {
+            wi = SampleUniformHemisphere(sampler.Get2D());
+            pdf = UniformHemispherePDF();
+            if (IsReflective(flags) && Dot(wo, isect.n) * Dot(wi, isect.n) < 0)
+                wi = -wi;
+            else if (IsTransmissive(flags) && Dot(wo, isect.n) * Dot(wi, isect.n) > 0)
+                wi = -wi;
+        }
+        beta *= bsdf.f(wo, wi) * AbsDot(wi, isect.shading.n) / pdf;
+        specularBounce = false;
+        ray = isect.SpawnRay(wi);
+    }
+*/
+    CHECK_GE(beta.y(lambda), 0.f);
+    DCHECK(!IsInf(beta.y(lambda)));
+    //}
     return L;
 }
 
