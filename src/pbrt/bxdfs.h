@@ -42,6 +42,15 @@ class DiffuseBxDF {
     }
 
     PBRT_CPU_GPU
+    SampledSpectrum gapprox(Vector3f wo, Vector3f wi, TransportMode mode) const {
+        if (!SameHemisphere(wo, wi))
+            return SampledSpectrum(0.f);
+        return R * InvPi;
+    }
+
+
+
+    PBRT_CPU_GPU
     pstd::optional<BSDFSample> Sample_f(
         Vector3f wo, Float uc, Point2f u, TransportMode mode,
         BxDFReflTransFlags sampleFlags = BxDFReflTransFlags::All) const {
@@ -92,6 +101,10 @@ class DiffuseTransmissionBxDF {
     PBRT_CPU_GPU
     SampledSpectrum f(Vector3f wo, Vector3f wi, TransportMode mode) const {
         return SameHemisphere(wo, wi) ? (R * InvPi) : (T * InvPi);
+    }
+    PBRT_CPU_GPU
+    SampledSpectrum gapprox(Vector3f wo, Vector3f wi, TransportMode mode) const {
+        return f(wo, wi, mode);
     }
 
     PBRT_CPU_GPU
@@ -187,6 +200,13 @@ class DielectricBxDF {
 
     PBRT_CPU_GPU
     SampledSpectrum f(Vector3f wo, Vector3f wi, TransportMode mode) const;
+
+    PBRT_CPU_GPU
+    SampledSpectrum gapprox(Vector3f wo, Vector3f wi, TransportMode mode) const {
+        return f(wo, wi, mode);
+    }
+
+
     PBRT_CPU_GPU
     Float PDF(Vector3f wo, Vector3f wi, TransportMode mode,
               BxDFReflTransFlags sampleFlags = BxDFReflTransFlags::All) const;
@@ -212,6 +232,11 @@ class ThinDielectricBxDF {
     ThinDielectricBxDF() = default;
     PBRT_CPU_GPU
     ThinDielectricBxDF(Float eta) : eta(eta) {}
+
+    PBRT_CPU_GPU
+    SampledSpectrum gapprox(Vector3f wo, Vector3f wi, TransportMode mode) const {
+        return f(wo, wi, mode);
+    }
 
     PBRT_CPU_GPU
     SampledSpectrum f(Vector3f wo, Vector3f wi, TransportMode mode) const {
@@ -327,6 +352,7 @@ class ConductorBxDF {
         return BSDFSample(f, wi, pdf, BxDFFlags::GlossyReflection);
     }
 
+
     PBRT_CPU_GPU
     SampledSpectrum f(Vector3f wo, Vector3f wi, TransportMode mode) const {
         if (!SameHemisphere(wo, wi))
@@ -347,6 +373,30 @@ class ConductorBxDF {
         SampledSpectrum F = FrComplex(AbsDot(wo, wm), eta, k);
 
         return mfDistrib.D(wm) * F * mfDistrib.G(wo, wi) / (4 * cosTheta_i * cosTheta_o);
+    }
+
+
+
+    PBRT_CPU_GPU
+    SampledSpectrum gapprox(Vector3f wo, Vector3f wi, TransportMode mode) const {
+        if (!SameHemisphere(wo, wi))
+            return {};
+        if (mfDistrib.EffectivelySmooth())
+            return {};
+        // Evaluate rough conductor BRDF
+        // Compute cosines and $\wm$ for conductor BRDF
+        Float cosTheta_o = AbsCosTheta(wo), cosTheta_i = AbsCosTheta(wi);
+        if (cosTheta_i == 0 || cosTheta_o == 0)
+            return {};
+        Vector3f wm = wi + wo;
+        if (LengthSquared(wm) == 0)
+            return {};
+        wm = Normalize(wm);
+
+        // Evaluate Fresnel factor _F_ for conductor BRDF
+       //SampledSpectrum F = FrComplex(AbsDot(wo, wm), eta, k);
+
+        return mfDistrib.gaussianApprox(wm) * SampledSpectrum(1.0);
     }
 
     PBRT_CPU_GPU
@@ -472,6 +522,9 @@ class LayeredBxDF {
 
         return flags;
     }
+
+
+
 
     PBRT_CPU_GPU
     SampledSpectrum f(Vector3f wo, Vector3f wi, TransportMode mode) const {
@@ -651,6 +704,12 @@ class LayeredBxDF {
 
         return f / nSamples;
     }
+
+    PBRT_CPU_GPU
+    SampledSpectrum gapprox(Vector3f wo, Vector3f wi, TransportMode mode) const {
+        return f(wo, wi, mode);
+    }
+
 
     PBRT_CPU_GPU
     pstd::optional<BSDFSample> Sample_f(
@@ -927,6 +986,13 @@ class HairBxDF {
              Float beta_n, Float alpha);
     PBRT_CPU_GPU
     SampledSpectrum f(Vector3f wo, Vector3f wi, TransportMode mode) const;
+
+    PBRT_CPU_GPU
+    SampledSpectrum gapprox(Vector3f wo, Vector3f wi, TransportMode mode) const {
+        return f(wo, wi, mode);
+    }
+
+
     PBRT_CPU_GPU
     pstd::optional<BSDFSample> Sample_f(Vector3f wo, Float uc, Point2f u,
                                         TransportMode mode,
@@ -1034,6 +1100,12 @@ class MeasuredBxDF {
     SampledSpectrum f(Vector3f wo, Vector3f wi, TransportMode mode) const;
 
     PBRT_CPU_GPU
+    SampledSpectrum gapprox(Vector3f wo, Vector3f wi, TransportMode mode) const {
+        return f(wo, wi, mode);
+    }
+
+
+    PBRT_CPU_GPU
     pstd::optional<BSDFSample> Sample_f(Vector3f wo, Float uc, Point2f u,
                                         TransportMode mode,
                                         BxDFReflTransFlags sampleFlags) const;
@@ -1127,9 +1199,21 @@ class NormalizedFresnelBxDF {
         return f;
     }
 
+    PBRT_CPU_GPU
+    SampledSpectrum gapprox(Vector3f wo, Vector3f wi, TransportMode mode) const {
+        return f(wo, wi, mode);
+    }
+
   private:
     Float eta;
 };
+
+inline SampledSpectrum BxDF::gapprox(Vector3f wo, Vector3f wi, TransportMode mode) const {
+    auto g = [&](auto ptr) -> SampledSpectrum { return ptr->gapprox(wo, wi, mode); };
+    return Dispatch(g);
+}
+
+
 
 inline SampledSpectrum BxDF::f(Vector3f wo, Vector3f wi, TransportMode mode) const {
     auto f = [&](auto ptr) -> SampledSpectrum { return ptr->f(wo, wi, mode); };

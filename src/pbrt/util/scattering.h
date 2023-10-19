@@ -14,6 +14,10 @@
 
 namespace pbrt {
 
+
+#define M_E 2.7182818284
+
+
 // Scattering Inline Functions
 PBRT_CPU_GPU inline Vector3f Reflect(Vector3f wo, Vector3f n) {
     return -wo + 2 * Dot(wo, n) * n;
@@ -121,6 +125,20 @@ class TrowbridgeReitzDistribution {
             alpha_y = std::max<Float>(alpha_y, 1e-4f);
         }
     }
+
+    
+    PBRT_CPU_GPU inline Float gaussianApprox(Vector3f wm) const {
+     
+        Float alpha = (alpha_x + alpha_y)/2.0;
+        Float a2 = alpha * alpha;
+        if (alpha > 1.0)
+            return 0.f;
+
+        Float gauss = (2.f * (SafeSqrt(Cos2Theta(wm)) - 1.f)) / a2;
+        gauss = pow(M_E, gauss) / (3.141 * a2);
+        return gauss;
+    }
+
 
     PBRT_CPU_GPU inline Float D(Vector3f wm) const {
         Float tan2Theta = Tan2Theta(wm);

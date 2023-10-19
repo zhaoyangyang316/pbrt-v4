@@ -43,6 +43,14 @@ class BSDF {
         return bxdf.f(wo, wi, mode);
     }
 
+    SampledSpectrum gapprox(Vector3f woRender, Vector3f wiRender,
+                      TransportMode mode = TransportMode::Radiance) const {
+        Vector3f wi = RenderToLocal(wiRender), wo = RenderToLocal(woRender);
+        if (wo.z == 0)
+            return {};
+        return bxdf.gapprox(wo, wi, mode);
+    }
+
     template <typename BxDF>
     PBRT_CPU_GPU SampledSpectrum f(Vector3f woRender, Vector3f wiRender,
                                    TransportMode mode = TransportMode::Radiance) const {

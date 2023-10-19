@@ -44,7 +44,7 @@
 
 namespace pbrt {
 
-#define RIS_M 1
+#define RIS_M 16
 
 STAT_COUNTER("Integrator/Camera rays traced", nCameraRays);
 
@@ -465,22 +465,23 @@ SampledSpectrum SimpleRISPathIntegrator::Li(RayDifferential ray, SampledWaveleng
         if (IsReflective(flags) && IsTransmissive(flags)) {
             wi[iter] = SampleUniformSphere(sampler.Get2D());
             pdf[iter] = UniformSpherePDF();
-        } else {
-            wi[iter] = SampleUniformHemisphere(sampler.Get2D());
-            pdf[iter] = UniformHemispherePDF();
-            if (IsReflective(flags) && Dot(wo, isect.n) * Dot(wi[iter], isect.n) < 0)
-                wi[iter] = -wi[iter];
-            else if (IsTransmissive(flags) && Dot(wo, isect.n) * Dot(wi[iter], isect.n) > 0)
-                wi[iter] = -wi[iter];
-        }
-        SampledSpectrum contribution = bsdf.f(wo, wi[iter]) * AbsDot(wi[iter], isect.shading.n) ;
+        }  
+        wi[iter] = SampleUniformHemisphere(sampler.Get2D());
+        pdf[iter] = UniformHemispherePDF();
+        if (IsReflective(flags) && Dot(wo, isect.n) * Dot(wi[iter], isect.n) < 0)
+            wi[iter] = -wi[iter];
+        else if (IsTransmissive(flags) && Dot(wo, isect.n) * Dot(wi[iter], isect.n) > 0)
+           wi[iter] = -wi[iter];
+        
+
+        SampledSpectrum contribution = bsdf.gapprox(wo, wi[iter]) * AbsDot(wi[iter], isect.shading.n) ;
         //specularBounce = false;
         RayDifferential shadingRay = isect.SpawnRay(wi[iter]);
         pstd::optional<ShapeIntersection> secondarySI = Intersect(shadingRay);
 
         /*
         if (!secondarySI) {
-            if (specularBounce)
+             if (specularBounce)
                 for (const auto &light : infiniteLights)
                    L = light.Le(ray, lambda);
         }*/
@@ -490,7 +491,7 @@ SampledSpectrum SimpleRISPathIntegrator::Li(RayDifferential ray, SampledWaveleng
             SurfaceInteraction &isect2 = secondarySI->intr;
             g[iter] += contribution * isect2.Le(-shadingRay.d, lambda);
         }
-        g[iter] += SampledSpectrum(0.00001f);
+        g[iter] += SampledSpectrum(0.1f);
         w[iter] = g[iter].Average()/pdf[iter];
         w_sum += w[iter];
     }

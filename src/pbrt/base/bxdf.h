@@ -177,7 +177,8 @@ class BxDF
 
     PBRT_CPU_GPU inline SampledSpectrum f(Vector3f wo, Vector3f wi,
                                           TransportMode mode) const;
-
+    PBRT_CPU_GPU inline SampledSpectrum gapprox(Vector3f wo, Vector3f wi,
+                                          TransportMode mode) const;
     PBRT_CPU_GPU inline pstd::optional<BSDFSample> Sample_f(
         Vector3f wo, Float uc, Point2f u, TransportMode mode = TransportMode::Radiance,
         BxDFReflTransFlags sampleFlags = BxDFReflTransFlags::All) const;
