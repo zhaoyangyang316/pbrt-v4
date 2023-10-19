@@ -255,6 +255,8 @@ class SimpleRISPathIntegrator : public RayIntegrator {
 
     std::string ToString() const;
 
+    int discreteSampler(Float *weights, int length, Float sumWeights, Sampler sampler) const;
+
   private:
     // SimpleRISPathIntegrator Private Members
     int maxDepth;

@@ -44,7 +44,7 @@
 
 namespace pbrt {
 
-#define RIS_M 16
+#define RIS_M 1
 
 STAT_COUNTER("Integrator/Camera rays traced", nCameraRays);
 
@@ -389,6 +389,11 @@ SimpleRISPathIntegrator::SimpleRISPathIntegrator(int maxDepth, bool sampleLights
       sampleBSDF(sampleBSDF),
       lightSampler(lights, Allocator()) {}
 
+
+
+
+
+
 SampledSpectrum SimpleRISPathIntegrator::Li(RayDifferential ray, SampledWavelengths &lambda,
                                          Sampler sampler, ScratchBuffer &scratchBuffer,
                                          VisibleSurface *) const {
@@ -396,6 +401,7 @@ SampledSpectrum SimpleRISPathIntegrator::Li(RayDifferential ray, SampledWaveleng
     SampledSpectrum L(0.f), beta(1.f);
     bool specularBounce = true;
     int depth = 0;
+
     //while (beta) {
         // Find next _SimplePathIntegrator_ vertex and accumulate contribution
         // Intersect _ray_ with scene
@@ -403,15 +409,16 @@ SampledSpectrum SimpleRISPathIntegrator::Li(RayDifferential ray, SampledWaveleng
 
     // Account for infinite lights if ray has no intersection
     if (!si) {
-        if (!sampleLights || specularBounce)
-            for (const auto &light : infiniteLights)
-                L += beta * light.Le(ray, lambda);
+        //if (!sampleLights || specularBounce)
+        //for (const auto &light : infiniteLights)
+        //    L += beta * light.Le(ray, lambda);
         return L;
     }
 
     // Account for emissive surface if light was not sampled
     SurfaceInteraction &isect = si->intr;
-    if (!sampleLights || specularBounce)
+    //if (!sampleLights || specularBounce)
+    if (specularBounce)
         L += beta * isect.Le(-ray.d, lambda);
 
     // Get BSDF and skip over medium boundaries
@@ -451,11 +458,10 @@ SampledSpectrum SimpleRISPathIntegrator::Li(RayDifferential ray, SampledWaveleng
     BxDFFlags flags = bsdf.Flags();
     
     Float w[RIS_M];
-    SampledSpectrum Lb[RIS_M];
-    Float w_sum;
+    SampledSpectrum g[RIS_M];
+    Float w_sum = 0.f;
     for (int iter = 0; iter < RIS_M; iter++){
-        
-
+        g[iter] = SampledSpectrum(0.f);
         if (IsReflective(flags) && IsTransmissive(flags)) {
             wi[iter] = SampleUniformSphere(sampler.Get2D());
             pdf[iter] = UniformSpherePDF();
@@ -467,17 +473,54 @@ SampledSpectrum SimpleRISPathIntegrator::Li(RayDifferential ray, SampledWaveleng
             else if (IsTransmissive(flags) && Dot(wo, isect.n) * Dot(wi[iter], isect.n) > 0)
                 wi[iter] = -wi[iter];
         }
-        SampledSpectrum contribution = bsdf.f(wo, wi[iter]) * AbsDot(wi[iter], isect.shading.n) / pdf[iter];
-        specularBounce = false;
-        RayDifferential shadingRay = isect.SpawnRay(wi[RIS_M]);
+        SampledSpectrum contribution = bsdf.f(wo, wi[iter]) * AbsDot(wi[iter], isect.shading.n) ;
+        //specularBounce = false;
+        RayDifferential shadingRay = isect.SpawnRay(wi[iter]);
         pstd::optional<ShapeIntersection> secondarySI = Intersect(shadingRay);
 
-        if (!si) {
-            if (!sampleLights || specularBounce)
+        /*
+        if (!secondarySI) {
+            if (specularBounce)
                 for (const auto &light : infiniteLights)
-                    Lb[iter] += light.Le(ray, lambda);
+                   L = light.Le(ray, lambda);
+        }*/
+
+        if (secondarySI) {
+            // Account for emissive surface if light was not sampled
+            SurfaceInteraction &isect2 = secondarySI->intr;
+            g[iter] += contribution * isect2.Le(-shadingRay.d, lambda);
         }
+        g[iter] += SampledSpectrum(0.00001f);
+        w[iter] = g[iter].Average()/pdf[iter];
+        w_sum += w[iter];
     }
+
+    // Select a sample
+    int risSample = discreteSampler(w, RIS_M, w_sum, sampler);
+
+    Vector3f wi_ris = wi[risSample];
+
+   
+    RayDifferential shadingRay = isect.SpawnRay(wi_ris);
+    pstd::optional<ShapeIntersection> secondarySI = Intersect(shadingRay);
+
+
+         /*
+   if (!secondarySI) {
+       if (specularBounce)
+           for (const auto &light : infiniteLights)
+               Lb[iter] = light.Le(ray, lambda);
+   }*/
+    SampledSpectrum contribution(0.f);
+    if (secondarySI) {
+        // Account for emissive surface if light was not sampled
+        contribution = bsdf.f(wo, wi_ris) * AbsDot(wi_ris, isect.shading.n);
+        SurfaceInteraction &isect2 = secondarySI->intr;
+        contribution *= isect2.Le(-shadingRay.d, lambda);
+    }
+
+    L = w_sum * contribution / (g[risSample].Average() * RIS_M);
+
 /*
     // Sample outgoing direction at intersection to continue path
     if (sampleBSDF) {
@@ -522,6 +565,23 @@ std::string SimpleRISPathIntegrator::ToString() const {
     return StringPrintf("[ SimpleRISPathIntegrator maxDepth: %d sampleLights: %s "
                         "sampleBSDF: %s ]",
                         maxDepth, sampleLights, sampleBSDF);
+}
+
+int SimpleRISPathIntegrator::discreteSampler(Float *weights, int length, Float sumWeights,
+                                             Sampler sampler) const{
+    Float randFloat = sampler.Get1D();
+    Float currentCDF = 0;
+
+    for (int idx = 0; idx < length; idx++) {
+        currentCDF += weights[idx]/sumWeights;
+        
+        if (randFloat < currentCDF)
+            return idx;
+
+    
+    }
+    return length - 1;
+    
 }
 
 std::unique_ptr<SimpleRISPathIntegrator> SimpleRISPathIntegrator::Create(
