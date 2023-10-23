@@ -394,9 +394,10 @@ class ConductorBxDF {
         wm = Normalize(wm);
 
         // Evaluate Fresnel factor _F_ for conductor BRDF
-       //SampledSpectrum F = FrComplex(AbsDot(wo, wm), eta, k);
-
-        return mfDistrib.gaussianApprox(wm) * SampledSpectrum(1.0);
+        //SampledSpectrum F = FrComplex(AbsDot(wo, wm), eta, k);
+        //return mfDistrib.D(wm) * F * mfDistrib.G(wo, wi) / (4 * cosTheta_i * cosTheta_o);
+        return mfDistrib.blinnPhongApprox(wm) * SampledSpectrum(1.0);
+        //return mfDistrib.gaussianApprox(wm) * SampledSpectrum(1.0);
     }
 
     PBRT_CPU_GPU

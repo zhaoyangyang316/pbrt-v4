@@ -126,6 +126,11 @@ class TrowbridgeReitzDistribution {
         }
     }
 
+
+    PBRT_CPU_GPU inline Float blinnPhongApprox(Vector3f wm) const {
+        Float alpha = (alpha_x + alpha_y)/2.0;
+        return pow(wm.z, 1.0/alpha);
+    }
     
     PBRT_CPU_GPU inline Float gaussianApprox(Vector3f wm) const {
      

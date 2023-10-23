@@ -459,6 +459,7 @@ SampledSpectrum SimpleRISPathIntegrator::Li(RayDifferential ray, SampledWaveleng
     
     Float w[RIS_M];
     SampledSpectrum g[RIS_M];
+    SampledSpectrum gSum = SampledSpectrum(0.f);
     Float w_sum = 0.f;
     for (int iter = 0; iter < RIS_M; iter++){
         g[iter] = SampledSpectrum(0.f);
@@ -491,13 +492,31 @@ SampledSpectrum SimpleRISPathIntegrator::Li(RayDifferential ray, SampledWaveleng
             SurfaceInteraction &isect2 = secondarySI->intr;
             g[iter] += contribution * isect2.Le(-shadingRay.d, lambda);
         }
-        g[iter] += SampledSpectrum(0.1f);
-        w[iter] = g[iter].Average()/pdf[iter];
-        w_sum += w[iter];
+
+#ifdef UNIFORM_RIS
+        g[iter] = SampledSpectrum(1.0f);
+#endif
+        gSum += g[iter];
+       
     }
 
+    for (int iter = 0; iter < RIS_M; iter++){
+        if(gSum.Average() > 0.0f)
+            g[iter] += gSum * 0.1 * (1.0/RIS_M);
+        else
+            g[iter] = SampledSpectrum(0.1f);
+        
+        w[iter] = g[iter].Average()/pdf[iter];
+        w_sum += w[iter];
+
+    }
+
+    
+
     // Select a sample
-    int risSample = discreteSampler(w, RIS_M, w_sum, sampler);
+    int risSample = 0;
+    
+    risSample = discreteSampler(w, RIS_M, w_sum, sampler);
 
     Vector3f wi_ris = wi[risSample];
 
